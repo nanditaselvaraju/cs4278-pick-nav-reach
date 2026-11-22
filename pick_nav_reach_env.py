@@ -1,4 +1,4 @@
-from time import time
+import time
 import pybullet as p
 import pybullet_data
 import numpy as np
@@ -12,13 +12,16 @@ from utils import closest_joint_values
 
 class PickNavReachEnv:
 
-    def __init__(self, 
-                 seed=0,
-                 object_idx=5,
-                 ):
+    def __init__(
+        self,
+        seed=0,
+        object_idx=5,
+        gui=True,
+    ):
         self.set_seed(seed)
 
-        self.pb_physics_client = p.connect(p.GUI)
+        connection_mode = p.GUI if gui else p.DIRECT
+        self.pb_physics_client = p.connect(connection_mode)
         p.setAdditionalSearchPath(pybullet_data.getDataPath()) 
         p.setGravity(0,0,-9.8)
 
@@ -241,9 +244,9 @@ class PickNavReachEnv:
 
         # action = np.clip(action, -1.0, 1.0)
         qpos, _, _, _ = self._get_state()
-        print(f"===========================Step {self.step_count}===========================")
+        # print(f"===========================Step {self.step_count}===========================")
         self.step_count += 1
-        print("current qpos: ", qpos)
+        # print("current qpos: ", qpos)
         # target = qpos + self.action_scale * action
         # target = np.clip(target, self.joint_lower, self.joint_upper)
         # print("wrap_mask: ", (self.joint_upper == 314))
@@ -251,7 +254,7 @@ class PickNavReachEnv:
         target = closest_joint_values(action, qpos, wrap_mask=(self.joint_upper == 314))
         # print("target before clip: ", target)
         target = np.clip(target, self.joint_lower, self.joint_upper)
-        print("target: ", target)
+        # print("target: ", target)
 
         # Position control for all controllable joints
         position_gains = [0.3, 0.3, 0.3,  # base movement: xy trans and z rot 

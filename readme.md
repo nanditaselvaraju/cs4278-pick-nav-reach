@@ -1,128 +1,63 @@
-# Default-Course-Project
-Default Course Project of CS4278/CS5478 Intelligent Robots: Algorithms and Systems
+# Pick, Navigate, Reach (Team 46)
 
-In this project, the task is to:
+A simulated Fetch robot picks one of 15 YCB objects off a table, carries it
+through a procedurally generated maze, and places it within 10 cm of the green goal sphere. One pipeline
+handles every object and every maze; nothing is tuned to a single object.
 
-1. Generate antipodal grasp proposals, solve IK, and pick up an object on the table.
-2. Carry the object and navigate the robot through the maze. 
-3. Bring the object to the target position (visualized as the green sphere). 
-
-We provide an environment code for the robot in `pick_nav_reach_env.py`.
-
-![Scene](imgs/scene.png)
-
-
-# Installation
-
-1. Create a conda environment using `Python 3.10`.
+## Install
 
 ```
 conda create -n pnr python==3.10
 conda activate pnr
+pip3 install pybullet numpy scipy matplotlib trimesh
 ```
 
-2. Our environment is build on [PyBullet](https://pybullet.org/wordpress/index.php/forum-2/). Install it with pip:
+## Run one object in one maze (opens the PyBullet window)
 
 ```
-pip3 install pybullet numpy matplotlib trimesh
+python pick_nav_reach_test.py <object_idx 0-14> <seed>
+python pick_nav_reach_test.py 3 1
 ```
 
-3. Clone the project repo:
+The script prints the pick attempts, the navigation progress and a final line such as
+`RESULT {'success': True, 'stage': 'reach', 'dist_to_goal': 0.0015, 'steps': 13607}`.
+A run succeeds when `dist_to_goal` is below 0.1 m. It takes a few minutes in the window because the
+environment sleeps 1/240 s per simulation substep.
+
+## Run many objects and mazes without a window
 
 ```
-git clone https://github.com/NUS-LinS-Lab/Pick-Nav-Reach-Default-Project.git
+python evaluate.py                          # all 15 objects x mazes 0-4
+python evaluate.py --seeds 5 6 7 8 9        # other mazes
+python evaluate.py --objects 3 11 --seeds 0 1
 ```
 
-# Run the Environment 
+`headless.py` swaps the PyBullet GUI for DIRECT mode and removes the sleep; the physics is unchanged.
 
-`python pick_nav_reach_env.py`
+## How it works
 
-You should replace the `keyboard_controller` with a customized module designed by yourselves and then use `env.step()` to controll the robot to complete the task.
+| Stage | Where | What it does |
+|---|---|---|
+| Grasp generation | `grasp_planner.py` (`generate_antipodal_grasps`), `pick.py` | Antipodal pairs from the point cloud and normals, gripper opening 10.4 cm, fingers must clear the table, pinch close to the object's centre. Thin objects use relaxed thresholds; flat objects wider than the gripper (the plate) are pinched by the rim. |
+| Inverse kinematics | `ik_solver.py` (`solve_arm_ik`) | Damped least squares over the torso and 7 arm joints; the base position is chosen separately. |
+| Arm motion planning | `rrt.py` (`plan_arm_path`), `pick.py` (`move_arm`) | RRT-Connect in joint space with collision checks against the table, the object and the robot itself. The straight line is used when it is free. |
+| Grasp execution and test | `pick.py` (`pick_object`) | Fold arm, approach 12 cm back, straight approach, close, lift 14 cm. The grasp is then rehearsed (tuck arm, drive, turn, hold 300 steps) and rejected if the object slips or rotates more than 0.05 rad; the simulation state is restored and the next grasp is tried. |
+| Navigation | `configuration_space_planner.py` (`plan_configuration_space_path`) | A* over (x, y, heading) with physics collision checks for the robot and a stand-in box for the carried object. |
+| Driving and delivery | `pick_nav_reach.py` | Drives the path as slowly as the 15,000-step limit allows, then slides the object onto the goal. |
 
-`env.step()` takes in a `numpy.ndarray` of shape (15,) as **action**, where 15 is the number of DoFs of the Fetch robot. The **observation** and **extra information** will be returned in python dictionaries as follows:
+## Files
 
-```python
-# key_name: value_type, value_size
+- `pick_nav_reach_env.py`: the course environment. The only change is line 1 (`import time`); the original
+  `from time import time` makes `time.sleep()` fail when the file is imported.
+- `maze_utils.py`, `utils.py`, `keyboard_control.py`, `assets/`: from the course repository, unchanged.
 
-# observation dict
-qpos: <class 'numpy.ndarray'>, (15,) # (num_dofs,)
-qvel: <class 'numpy.ndarray'>, (15,) # (num_dofs,)
-object_pos: <class 'numpy.ndarray'>, (3,) # position
-object_xyzw: <class 'numpy.ndarray'>, (4,) # quaternion xyzw
-goal_pos: <class 'numpy.ndarray'>, (3,) # position
-object_pc: <class 'trimesh.caching.TrackedArray'>, (1024, 3) # (num_points, position)
-object_normals: <class 'numpy.ndarray'>, (1024, 3) # (num_points, direction)
-cube_positions: <class 'numpy.ndarray'>, (140, 2) # (num_cubes, xy_position)
+## Notes
 
-# info dict
-dist_to_goal: <class 'numpy.float64'>, () # < 0.1 means success
-success: <class 'numpy.bool'>, () # success or not
-
-```
-
-# Requirement
-
-You should implement the grasp generation, motion planning, and navigation algorithms in your customized module by yourselves to accomplish the task.
-
-# Rubrics
-
-We evaluate your algorithms in the following two aspects with 5 Unprovided seeds:
-
-- Pick: 5 test objects (within the provided objects).
-
-- Navigation and Reach: 5 test mazes.
-
-Unless otherwise stated: placement tolerance = **10 cm**
-
-## Pick (64%)
-
-### Grasp Genration 
-
-Use the **object point cloud and surface normals** to generate grasps.
-
-- Function for Grasp Generation - 20 pts
-
-### Motion Planning and Grasping
-
-Use motion planning to execute the generated grasps.
-
-- Function for Motion Planning - 20 pts
-
-For each trial, award the following (sum; then average across trials):
-
-- Lift within 3000 sim steps — 6 pts
-
-- Lift height ≥ 10 cm above table — 6 pts
-
-- Hold stability for ≥ 50 steps — 6 pts
-
-- Final pose close to target grasp — 6 pts
-
-![Scene](imgs/success_grasp.png)
-
-## Navigation and Reach (36%)
-
-Use the maze configuration to navigate and reach the goal.
-
-- Function for Navigation - 20 pts
-
-For each trial, award the following (sum; then average across trials):
-
-- reach within 10 cm of the goal sphere — 6 pts
-
-- reach within 15000 sim steps - 6 pts
-
-- Carry Stability — 4 pts
-
-    no drop that requires re-grasp during navigation → 2 pts each (max 8).
-
-![Scene](imgs/success_navigation.png)
-
-
-# References
-
-- [PyBullet Quickstart Guide](https://docs.google.com/document/d/10sXEhzFRSnvFcl3XxNGhnD4N2SedqwdAvK3dsihxVUA/edit?tab=t.0#heading=h.2ye70wns7io3).
-
-# Acknowledgments
-
-- YCB object models are chosen and adapted from [here](https://www.ycbbenchmarks.com/).
+- PyBullet runs are not exactly repeatable: a marginal grasp can pass in one run and fail in the next, so
+  results should be read over many runs, not one.
+- Measured results (15 objects x 5 mazes = 75 runs per set, headless, Linux x86, Python 3.13, PyBullet 3.2.7):
+  57/75 on mazes 0-4 (used while developing), 41/75 on mazes 5-9 (used to find a navigation bug) and 50/75 on
+  mazes 10-14 (never used for tuning). Maze 9 fails for every object: its goal is in a dead-end pocket the robot
+  cannot enter while holding an object (seed 15 behaves the same). The hardest objects are the sugar box, foam brick,
+  strawberry, plate and apple. Results differ between machines and runs by a few cases per set.
+- Mazes 0-4 were used while developing; `evaluate.py --seeds 10 11 12 13 14` runs mazes that were never used for tuning.
